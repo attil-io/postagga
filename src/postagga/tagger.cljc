@@ -19,14 +19,14 @@
                 transitions 
                 emissions]} model
         
-        T1 (loop [rem-observations (rest observations)
-                  prev-observation (first observations)
+        [T1 T2] (loop [rem-observations (rest observations)
+                  observation-idx  1
                   rem-states states
                   T1 (into {} (for [i states]
-                                [[i (first observations)] ((fnil  * 0 0)
+                                [[i 0] ((fnil  * 0 0)
                                                            (init-probs i)
-                                                           (emissions [i (first observations)]))]))]
-
+                                                           (emissions [i (first observations)]))]))
+                  T2 {}]
              (if (seq rem-observations)
                (let [cur-observation (first rem-observations)]
                                         ; I still have states to test...
@@ -36,35 +36,38 @@
 
                          Akj (get-column-m transitions cur-state)
                          
-                         T1ki-1 (get-column-m T1 prev-observation)
+                         T1ki-1 (get-column-m T1 (dec observation-idx))
                          
-                         A*T (merge-with * Akj T1ki-1)]
-                     
+                         A*T (into {} (map #(vector (first %) (* (Akj [(first %) cur-state]) (T1ki-1 %))) (keys T1ki-1)))
+                         max-key (key (apply max-key val A*T))
+                         max-val (*  (if-let [p  (get emissions [cur-state cur-observation])] p 0)
+                                     (A*T max-key))]
+;(println "T1=" T1 " Akj=" Akj " T1ki-1=" T1ki-1 " A*T=" A*T " max-val=" max-val " max-key=" max-key) 
                      (recur rem-observations
-                            prev-observation
+                            observation-idx
                             (rest rem-states)
-                            (assoc T1 [cur-state cur-observation] (*
-                                                                   (if-let [p  (get emissions
-                                                                                    [cur-state cur-observation])]
-                                                                     p
-                                                                     0)
-                                                                   (reduce max (vals A*T))))))
+                            (assoc T1 [cur-state observation-idx] max-val)
+                            (assoc T2 [cur-state observation-idx] max-key)))
                    ;; No more states, I Go to the next Observation, I resume from the first state
                    (recur  (rest rem-observations)
-                           cur-observation
+                           (inc observation-idx)
                            states
-                           T1)))
+                           T1
+                           T2)))
 
-               T1))]
-
-    (loop [rem-observations  observations
-           res []]
-      (if (seq rem-observations)             
-        (recur (rest rem-observations)
-               (conj res (-> (get-column-m T1 (first rem-observations))
-                             arg-max-m
-                             (get 0))))
-        (into [] res)))))
+               [T1 T2]))]
+;(println "T1 final: " T1 "\n")
+;(println "T2 final: " T2 "\n")
+    (let [probs (get-column-m T1 (dec (count observations)))
+          max-prob-loc (key (apply max-key val probs))]
+          (loop [observation-idx (dec (count observations))
+                 act-state (first max-prob-loc)
+                 res []]
+               (if (>= observation-idx 0) 
+                   (recur (dec observation-idx)
+                          (T2 [act-state observation-idx])
+                          (conj res act-state))
+		   (apply vector (reverse res)))))))
 
 
 (defn patch-w-entity
